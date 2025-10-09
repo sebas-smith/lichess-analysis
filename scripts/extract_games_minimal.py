@@ -6,24 +6,34 @@ import io, os, argparse, csv, uuid
 import chess.pgn
 import zstandard as zstd
 
-FIELDS = ["game_id","utc_date","utc_time","white","black","white_elo","black_elo","result","termination","timecontrol","opening","site","event"]
+FIELDS = [
+    "game_id","utc_date","utc_time","white","black","white_elo","black_elo",
+    "white_rating_diff","black_rating_diff","white_title","black_title",
+    "result","termination","timecontrol","opening","site","event"
+]
+
 
 def process_game(game):
     h = game.headers
-    gid = h.get("Site","") + "|" + h.get("Event","") + "|" + str(uuid.uuid4())[:8]
+    site = h.get("Site", "")
+    gid = site.rsplit("/", 1)[-1] if site else str(uuid.uuid4())[:8]
     return {
         "game_id": gid,
-        "utc_date": h.get("UTCDate", h.get("Date","")),
+        "utc_date": h.get("UTCDate", ""),
         "utc_time": h.get("UTCTime",""),
         "white": h.get("White",""),
         "black": h.get("Black",""),
         "white_elo": h.get("WhiteElo",""),
         "black_elo": h.get("BlackElo",""),
+        "white_rating_diff": h.get("WhiteRatingDiff", ""),
+        "black_rating_diff": h.get("BlackRatingDiff", ""),
+        "white_title": h.get("WhiteTitle", ""),
+        "black_title": h.get("BlackTitle", ""),
         "result": h.get("Result",""),
         "termination": h.get("Termination",""),
         "timecontrol": h.get("TimeControl",""),
         "opening": h.get("Opening",""),
-        "site": h.get("Site",""),
+        "site": site,
         "event": h.get("Event",""),
     }
 
