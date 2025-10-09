@@ -1,0 +1,8 @@
+﻿#Python virtual environment
+environment/
+#Data and output files
+data/
+out/
+#Python cache
+__pycache__/
+*.pyc
