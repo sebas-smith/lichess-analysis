@@ -45,7 +45,7 @@ def stream_to_parquet(zst_path, out_dir, sample_games=None):
     """
     Stream a .pgn.zst and write partitioned parquet files to out_dir.
     Usage:
-      stream_to_parquet("data/lichess.pgn.zst", "parquet_out", sample_games=500)
+      stream_to_parquet("data/lichess.pgn.zst", "parquet_out", sample_games=5000)
     """
     os.makedirs(out_dir, exist_ok=True)
     ctx = zstd.ZstdDecompressor()
