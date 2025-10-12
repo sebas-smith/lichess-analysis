@@ -127,7 +127,7 @@ def stream_to_parquet(zst_path, out_dir, sample_games=None):
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("zst_path", help="path to the .pgn.zst file")
-    p.add_argument("--out", default="parquet", help="output directory for parquet chunks")
+    p.add_argument("--out", default=r"out\parquet_moves", help="output directory for parquet chunks")
     p.add_argument("--sample-games", type=int, default=None, help="if set, stop after this many games (for quick test)")
     args = p.parse_args()
     stream_to_parquet(args.zst_path, args.out, args.sample_games)
