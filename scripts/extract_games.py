@@ -2,16 +2,18 @@
 # extract_games_minimal.py
 # Streams a lichess .pgn.zst and writes a minimal games parquet (one row per game).
 
-import io, os, argparse, csv, uuid
+import io, os, argparse, uuid
 import chess.pgn
 import zstandard as zstd
 import pandas as pd
 
+"""
 FIELDS = [
     "game_id","utc_date","utc_time","white","black","white_elo","black_elo",
     "white_rating_diff","black_rating_diff","white_title","black_title",
     "result","termination","timecontrol","opening","site","event"
 ]
+"""
 
 CHUNK_GAMES = 2_000_000
 

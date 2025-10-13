@@ -10,11 +10,11 @@ import traceback
 
 """
 FIELDS = [
-    "game_id","moves_raw", "ECO", "Site"
+    "game_id","moves_san", "ECO"
 ]
 """
 
-CHUNK_GAMES = 2_000_000
+CHUNK_GAMES = 500000
 
 
 
@@ -34,9 +34,7 @@ def san_moves_from_game(game):
 
 def process_game(game, exporter, game_index=None):
     """
-    Try to extract full moves_raw (including comments).
-    On MemoryError (huge game), fall back to SAN-only, then to truncation.
-    Returns dict for one row.
+    Try to extract moves_san
     """
     h = game.headers
     site = h.get("Site", "")
@@ -50,25 +48,9 @@ def process_game(game, exporter, game_index=None):
         print(f"Warning: SAN extraction error at idx={game_index}")
         traceback.print_exc()
 
-    # Try full raw moves (comments). If it OOMs, fallback to moves_san.
-    try:
-        moves_raw = game.accept(exporter)  # prefer full raw (with {comments})
-        moves_kind = "raw"
-    except MemoryError:
-        moves_raw = moves_san  # store san so customers won't see NULL, or use placeholder if you prefer
-        moves_kind = "san_only"
-        print(f"Warning: MemoryError for moves_raw at idx={game_index}; stored SAN-only fallback.")
-    except Exception as e:
-        moves_raw = "<ERROR_EXTRACTING_RAW>"
-        moves_kind = "error"
-        print(f"Warning: Exception extracting raw moves at idx={game_index}: {e}")
-        traceback.print_exc()
-
     return {
         "game_id": gid,
-        "moves_raw": moves_raw,
         "moves_san": moves_san,
-        "moves_kind": moves_kind,
         "ECO": eco,
     }
 
@@ -98,14 +80,14 @@ def stream_to_parquet(zst_path, out_dir, sample_games=None):
             buf.append(row)
             count += 1
 
-            if count % 500 == 0:
+            if count % 1000 == 0:
                 print(f"Processed {count} games... buffer size {len(buf)}")
 
             # flush to parquet when buffer is large
             if len(buf) >= CHUNK_GAMES:
                 df = pd.DataFrame(buf)
                 fname = os.path.join(out_dir, f"moves_chunk_{file_idx:05d}.parquet")
-                df.to_parquet(fname, index=False)
+                df.to_parquet(fname, index=False, compression = 'snappy')
                 print(f"Wrote {len(df)} games to {fname}")
                 file_idx += 1
                 buf = []
@@ -117,7 +99,7 @@ def stream_to_parquet(zst_path, out_dir, sample_games=None):
     if buf:
         df = pd.DataFrame(buf)
         fname = os.path.join(out_dir, f"moves_chunk_{file_idx:05d}.parquet")
-        df.to_parquet(fname, index=False)
+        df.to_parquet(fname, index=False, compression = 'snappy')
         print(f"Wrote {len(df)} games to {fname}")
         file_idx += 1
 

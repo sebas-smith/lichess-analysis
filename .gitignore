@@ -6,3 +6,6 @@ out/
 #Python cache
 __pycache__/
 *.pyc
+#Testing
+checker.py
+log.txt
