@@ -39,7 +39,8 @@ END_REASON_MAP = {
     7: "fifty_move_rule",
     8: "insufficient_material",
     9: "agreement_draw",
-    10: "abandoned",
+    10:"abandoned",
+    11:"Rules infraction"	
 }
 
 _trailer_strip = re.compile(r'[+#]+$')
@@ -146,12 +147,11 @@ def pick_end_reason_code(dets, termination, result, mated):
 
 # Worker: process pandas chunk and produce output columns
 def process_df_chunk(df_chunk, moves_col='moves_san', term_col='termination',
-                     result_col='result', mated_col='mated', start_fen_col=None):
+                     result_col='result', mated_col='mated', game_id_col = 'game_id'):
     out = {
+        "game_id": [],
         "end_reason_code": [],
         "end_reason": [],
-        "is_draw": [],
-        "winner": [],
     }
 
     for idx, row in df_chunk.iterrows():
@@ -159,28 +159,14 @@ def process_df_chunk(df_chunk, moves_col='moves_san', term_col='termination',
         termination = row.get(term_col)
         result = row.get(result_col)
         mated = row.get(mated_col, False)
-        start_fen = row.get(start_fen_col) if start_fen_col else None
 
         dets = analyze_single_game_row(moves, termination, result)
         code = pick_end_reason_code(dets, termination, result, mated)
         reason = END_REASON_MAP.get(code, "unknown")
 
-        # is_draw: either result indicates draw or the chosen reason is a draw type
-        draw_reasons = {4,5,6,7,8,9,10}
-        is_draw = (result == '1/2-1/2') or (code in draw_reasons)
-
-        # winner: from result column (authoritative). Use None for draws.
-        if result == '1-0':
-            winner = 'white'
-        elif result == '0-1':
-            winner = 'black'
-        else:
-            winner = None
 
         out["end_reason_code"].append(int(code))
         out["end_reason"].append(reason)
-        out["is_draw"].append(bool(is_draw))
-        out["winner"].append(winner)
 
     return pd.DataFrame(out, index=df_chunk.index)
 
