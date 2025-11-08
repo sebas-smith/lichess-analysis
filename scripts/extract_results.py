@@ -1,31 +1,10 @@
-"""
-detect_end_reason.py
-
-Reads parquet files (INPUT_GLOB), streams them in batches, replays cleaned SAN with python-chess,
-detects stalemate/threefold/50-move/insufficient-material and timeout/resignation logic,
-and writes out shards with one authoritative end_reason_code + end_reason, plus is_draw and winner.
-
-Requires: python-chess, pandas, pyarrow, tqdm
-"""
-
 import os
 import re
-from pathlib import Path
-from multiprocessing import Pool, cpu_count
+import argparse
 
 import chess
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
-import pyarrow.dataset as ds
-
-# ---------------- CONFIG ----------------
-INPUT_GLOB = "data/parquet_joined/*.parquet"
-OUTPUT_DIR = "data/parquet_results"           # dir to write shards
-BATCH_ROWS = 2000
-N_WORKERS = max(1, cpu_count() - 2)
-MAX_BATCHES = None       # set small integer to test, or None for full run
-# ----------------------------------------
+import glob
 
 # End reason mapping (authoritative codes)
 END_REASON_MAP = {
@@ -37,10 +16,9 @@ END_REASON_MAP = {
     5: "stalemate",
     6: "threefold_repetition",
     7: "fifty_move_rule",
-    8: "insufficient_material",
-    9: "agreement_draw",
-    10:"abandoned",
-    11:"Rules infraction"	
+    8: "insufficient_material_claimed",
+    9: "insufficient_material_automatic",
+    10:"agreement_draw",
 }
 
 _trailer_strip = re.compile(r'[+#]+$')
@@ -57,17 +35,19 @@ def analyze_single_game_row(moves_san, termination, result):
             "is_stalemate": False,
             "is_threefold": False,
             "is_fifty_move": False,
+            "is_insufficient_material": False
         }
 
     
     
     board = chess.Board()
     toks = tokens_from_san_fast(moves_san)
-    seen = {board.transposition_key(): 1}
+    seen = {board._transposition_key(): 1}
 
     is_stalemate = False
     is_threefold = False
     is_fifty_move = False
+    is_insufficient_material = False
 
     for san in toks:
         if not san:
@@ -81,7 +61,7 @@ def analyze_single_game_row(moves_san, termination, result):
             is_stalemate = True
             break
         
-        key = board.transposition_key()
+        key = board._transposition_key()
         cnt = seen.get(key, 0) + 1
         seen[key] = cnt
         if cnt >= 3:
@@ -91,11 +71,15 @@ def analyze_single_game_row(moves_san, termination, result):
         if getattr(board, "halfmove_clock", 0) >= 100:
             is_fifty_move = True
             break
-
+        
+        if board.is_insufficient_material():
+            is_insufficient_material = True
+            
     return {
         "is_stalemate": bool(is_stalemate),
         "is_threefold": bool(is_threefold),
         "is_fifty_move": bool(is_fifty_move),
+        "is_insufficient_material": bool(is_insufficient_material)
     }
 
 def pick_end_reason_code(dets, termination, result, mated):
@@ -126,96 +110,83 @@ def pick_end_reason_code(dets, termination, result, mated):
     if dets.get("is_fifty_move"):
         return 7
 
-    # 8: insufficient material
+    # 8: insufficient material claimed
     if termination == 'Insufficient material':
         return 8
-    
-    # 10: Abandoned
-    if termination == 'Abandoned':
-        return 10
-    
-    # 11: Termination
-    if termination == 'Rules infraction':
-        return 11
-
-    # 9: agreement_draw should be anything else that's not already a draw
-    if result == '1/2-1/2':
+    # 9: insufficient material both
+    if dets.get("is_insufficient_material"):
         return 9
+    
+
+    # 10: agreement_draw should be anything else that's not already a draw
+    if result == '1/2-1/2':
+        return 10
 
     # 0: Other
     return 0
 
-# Worker: process pandas chunk and produce output columns
-def process_df_chunk(df_chunk, moves_col='moves_san', term_col='termination',
-                     result_col='result', mated_col='mated', game_id_col = 'game_id'):
-    out = {
-        "game_id": [],
-        "end_reason_code": [],
-        "end_reason": [],
+def process_row(row, row_index = None):
+    gid = row.get("game_id")
+    moves_san = row.get("moves_san")
+    termination = row.get("termination")
+    result = row.get("result")
+    mated = row.get("mated")
+    
+    dets = analyze_single_game_row(moves_san, termination, result)
+    
+    code = pick_end_reason_code(dets, termination, result, mated)
+    
+    reason = END_REASON_MAP.get(code, "unknown")
+    
+    return {
+        "game_id": gid,
+        "end_code": code,
+        "end_reason": reason,
     }
 
-    for idx, row in df_chunk.iterrows():
-        moves = row.get(moves_col)
-        termination = row.get(term_col)
-        result = row.get(result_col)
-        mated = row.get(mated_col, False)
 
-        dets = analyze_single_game_row(moves, termination, result)
-        code = pick_end_reason_code(dets, termination, result, mated)
-        reason = END_REASON_MAP.get(code, "unknown")
+def stream_parquet_to_parquet(input_glob, out_dir, sample_games=None):
+    """
+    Reads all Parquet files matching input_glob and writes a corresponding output file
+    (1:1 mapping) into out_dir.
 
+    Each output parquet will have only the desired processed data
+    derived from each input file.
+    """
+    os.makedirs(out_dir, exist_ok=True)
 
-        out["end_reason_code"].append(int(code))
-        out["end_reason"].append(reason)
+    print(input_glob)
 
-    return pd.DataFrame(out, index=df_chunk.index)
+    files = sorted(glob.glob(input_glob))
+    
+    print(files)
 
-# Top-level streaming + multiprocessing coordinator
-def run_pipeline(input_glob=INPUT_GLOB, output_dir=OUTPUT_DIR, batch_rows=BATCH_ROWS,
-                 n_workers=N_WORKERS, max_batches=MAX_BATCHES):
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
-    dataset = ds.dataset(input_glob, format="parquet")
-    scanner = dataset.scanner(batch_size=batch_rows)
-    batches = scanner.to_batches()
+    for i, parquet_path in enumerate(files, 1):
+        print(f"[{i}/{len(files)}] Reading {parquet_path}")
 
-    pool = Pool(n_workers)
-    futures = []
-    written = 0
+        df = pd.read_parquet(parquet_path)
 
-    try:
-        for i, rb in enumerate(batches):
-            if max_batches is not None and i >= max_batches:
-                break
-            df_chunk = rb.to_pandas()
-            # submit
-            fut = pool.apply_async(process_df_chunk, (df_chunk,))
-            futures.append((i, df_chunk, fut))
+        # optional sampling for testing
+        if sample_games:
+            df = df.iloc[:sample_games]
 
-            # throttle to keep memory bounded: flush earliest finished futures if too many queued
-            while len(futures) > n_workers * 4:
-                j, df_in, f = futures.pop(0)
-                res_df = f.get()
-                out_df = pd.concat([df_in.reset_index(drop=True), res_df.reset_index(drop=True)], axis=1)
-                filename = os.path.join(output_dir, f"shard_{j:06d}.parquet")
-                table = pa.Table.from_pandas(out_df)
-                pq.write_table(table, filename)
-                written += 1
+        # process each row (user-defined function)
+        processed = [process_row(row) for _, row in df.iterrows()]
+        processed_df = pd.DataFrame(processed)
 
-        # finish remaining
-        for j, df_in, f in futures:
-            res_df = f.get()
-            out_df = pd.concat([df_in.reset_index(drop=True), res_df.reset_index(drop=True)], axis=1)
-            filename = os.path.join(output_dir, f"shard_{j:06d}.parquet")
-            table = pa.Table.from_pandas(out_df)
-            pq.write_table(table, filename)
-            written += 1
-    finally:
-        pool.close()
-        pool.join()
+        # build output filename matching input name
+        base_name = os.path.basename(parquet_path)
+        out_path = os.path.join(out_dir, base_name)
 
-    print(f"Done — wrote {written} shards to {output_dir}")
+        processed_df.to_parquet(out_path, index=False, compression="snappy")
+        print(f"  → wrote {len(processed_df)} rows to {out_path}")
 
-# Run
+    print(f"Done. {len(files)} parquet files written to {out_dir}")
+    
 if __name__ == "__main__":
-    print(f"Running with BATCH_ROWS={BATCH_ROWS}, N_WORKERS={N_WORKERS}. Tune these for your Surface Pro 7.")
-    run_pipeline()
+    p = argparse.ArgumentParser()
+    p.add_argument("--parquet_path", default = "out/cleaned_games/*.parquet", help="path to the input Parquet folder")
+    p.add_argument("--out", default=r"out\terminations", help="output directory for parquet chunks")
+    p.add_argument("--sample-games", type=int, default=None, help="if set, stop after this many games (for quick test)")
+    args = p.parse_args()
+    stream_parquet_to_parquet(args.parquet_path, args.out, args.sample_games)
