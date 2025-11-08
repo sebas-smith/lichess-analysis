@@ -1,7 +1,7 @@
 ﻿#Python virtual environment
 environment/
 #Data and output files
-data/
+in/
 out/
 #Python cache
 __pycache__/
@@ -9,3 +9,9 @@ __pycache__/
 #Testing
 checker.py
 log.txt
+workflow.txt
+Neworkflow.txt
+analysis/sql_practice.ipynb
+scripts/get_termination.py
+scripts/per_player.py
+analysis/players.ipynb
