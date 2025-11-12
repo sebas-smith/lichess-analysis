@@ -12,6 +12,8 @@ log.txt
 workflow.txt
 Neworkflow.txt
 analysis/sql_practice.ipynb
+analysis/gambits.ipynb
 scripts/get_termination.py
 scripts/per_player.py
 analysis/players.ipynb
+.claude
