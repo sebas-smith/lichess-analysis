@@ -1,6 +1,6 @@
-# Lichess Tilt Analysis
+# Lichess Analysis
 
-A statistical analysis of ~10 million chess games from Lichess investigating **tilt** - the psychological phenomenon where players perform worse after losing. This project explores whether losing streaks affect a player's probability of losing their next game, along with patterns in draw rates and opening performance across different rating levels.
+A statistical analysis of ~10 million chess games from the Lichess database
 
 ## Key Findings
 
@@ -8,13 +8,14 @@ A statistical analysis of ~10 million chess games from Lichess investigating **t
 Loss streaks **do** increase the probability of losing the next game:
 - The effect is subtle but measurable across all time controls
 - Varies by game type (Bullet, Blitz, Rapid, Classical)
-- Shows alternating pattern suggesting both psychological factors and regression to mean
+- Shows alternating pattern at start suggesting both psychological factors and regression to mean
+- Considerably larger in Hyperbullet
 
 ### 2. Draw Rate Paradox
-Lower-rated players (~800-1200 Elo) have **higher** draw rates in Classical/Rapid games:
+Lower-rated players (~800-1200 Elo) have **higher** draw rates than slightly higher rated players than them:
 - **Cause**: Accidental stalemates
 - Lower-rated players accidentally stalemate opponents instead of delivering checkmate
-- This pattern does NOT appear in faster time controls (Bullet/UltraBullet)
+- This pattern does NOT appear in faster time controls (Bullet/UltraBullet) due to flagging (running out of time) usually occuring before mate is possible
 
 ### 3. Time Control Effects
 - **Faster time controls**: Players flag (lose on time) instead of stalemating
@@ -249,5 +250,4 @@ Data sourced from [Lichess Open Database](https://database.lichess.org/).
 ## Acknowledgments
 
 - Lichess for providing open chess game data
-- python-chess library for robust chess game handling
-- DuckDB for efficient analytical queries
+
